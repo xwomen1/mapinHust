@@ -72,5 +72,3 @@ LeafletJS
 
 Gin Gonic
 
- Tác giả
-Dự án bởi Nhóm XYZ – Trường Đại học ABC.
