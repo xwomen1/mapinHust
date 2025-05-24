@@ -23,7 +23,7 @@ type Coordinate struct {
 }
 
 var points = map[string]Point{
-	"Nha xe D9":   {"Nha xe D9", 21.004061, 105.844573, 300, 0},
+	"Nha xe D9":   {"Nha xe D9", 21.004061, 105.844573, 300, 300},
 	"Nha xe D3-5": {"Nha xe D3-5", 21.004972, 105.845431, 500, 0},
 	"Nha xe C7":   {"Nha xe C7", 21.005054, 105.844911, 300, 0},
 	"Nha xe C5":   {"Nha xe C5", 21.005863, 105.844629, 200, 0},
@@ -157,6 +157,109 @@ func updateOccupiedHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type Location struct {
+	Lat float64
+	Lng float64
+}
+
+func Haversine(lat1, lon1, lat2, lon2 float64) float64 {
+	const R = 6371e3 // bán kính Trái đất (m)
+	φ1 := lat1 * math.Pi / 180
+	φ2 := lat2 * math.Pi / 180
+	Δφ := (lat2 - lat1) * math.Pi / 180
+	Δλ := (lon2 - lon1) * math.Pi / 180
+
+	a := math.Sin(Δφ/2)*math.Sin(Δφ/2) +
+		math.Cos(φ1)*math.Cos(φ2)*
+			math.Sin(Δλ/2)*math.Sin(Δλ/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+
+	return R * c // khoảng cách (mét)
+}
+
+func FindClosestNodeFromLocation(loc Location) string {
+	minDist := math.MaxFloat64
+	closest := ""
+	for id, p := range points {
+		// Chỉ chọn điểm có trong đồ thị (có thể lọc qua graph[id])
+		if _, exists := graph[id]; exists {
+			dist := Haversine(loc.Lat, loc.Lng, p.Lat, p.Lng)
+			if dist < minDist {
+				minDist = dist
+				closest = id
+			}
+		}
+	}
+	return closest
+}
+
+func FindNearestPoint(current Location) (nearestParkingID string, distance float64) {
+	minDist := math.MaxFloat64
+	nearest := ""
+
+	for id, p := range points {
+
+		dist := Haversine(current.Lat, current.Lng, p.Lat, p.Lng)
+		if dist < minDist {
+			minDist = dist
+			nearest = id
+		}
+
+	}
+
+	return nearest, minDist
+}
+func FindNearestAvailableParking(current Location) (nearestParkingID string, distance float64) {
+	minDist := math.MaxFloat64
+	nearest := ""
+
+	for id, p := range points {
+		// Bỏ qua các điểm không phải nhà xe (capacity = 0)
+		if p.Capacity == 0 {
+			continue
+		}
+		// Chỉ xét những nhà xe còn chỗ trống
+		if p.Occupied < p.Capacity {
+			dist := Haversine(current.Lat, current.Lng, p.Lat, p.Lng)
+			if dist < minDist {
+				minDist = dist
+				nearest = id
+			}
+		}
+	}
+
+	return nearest, minDist
+}
+
+func suggestParkingHandler(w http.ResponseWriter, r *http.Request) {
+	var loc Location
+	if err := json.NewDecoder(r.Body).Decode(&loc); err != nil {
+		http.Error(w, "Invalid location", http.StatusBadRequest)
+		return
+	}
+
+	start := FindClosestNodeFromLocation(loc)
+	dest, _ := FindNearestAvailableParking(loc)
+
+	if start == "" || dest == "" {
+		http.Error(w, "Cannot determine route", http.StatusInternalServerError)
+		return
+	}
+
+	path, dist := Dijkstra(graph, start, dest)
+	resp := struct {
+		ParkingID string   `json:"parking_id"`
+		Path      []string `json:"path"`
+		Distance  int      `json:"steps"`
+	}{
+		ParkingID: dest,
+		Path:      path,
+		Distance:  dist,
+	}
+
+	json.NewEncoder(w).Encode(resp)
+}
+
 func main() {
 	router := gin.Default()
 
@@ -170,6 +273,38 @@ func main() {
 			result = append(result, Coordinate{p.Lat, p.Lng})
 		}
 		c.JSON(http.StatusOK, result)
+	})
+
+	router.POST("/update-occupied", gin.WrapF(updateOccupiedHandler))
+	router.POST("/nearest", func(c *gin.Context) {
+		var loc Location
+		if err := c.ShouldBindJSON(&loc); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid location"})
+			return
+		}
+		nearestPointID, _ := FindNearestPoint(loc)
+		if nearestPointID == "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "no available parking"})
+			return
+		}
+
+		nearestParkingID, _ := FindNearestAvailableParking(loc)
+		if nearestParkingID == "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "no available parking"})
+			return
+		}
+
+		path, _ := Dijkstra(graph, nearestPointID, nearestParkingID)
+
+		result := []Coordinate{}
+		for _, id := range path {
+			p := points[id]
+			result = append(result, Coordinate{p.Lat, p.Lng})
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"parkingID": nearestParkingID,
+			"path":      result,
+		})
 	})
 
 	router.StaticFile("/", "./index.html") // serve frontend
