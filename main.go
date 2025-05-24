@@ -2,6 +2,7 @@ package main
 
 import (
 	"container/heap"
+	"embed"
 	"encoding/json"
 	"math"
 	"net/http"
@@ -228,6 +229,8 @@ func FindNearestAvailableParking(fromID string) (nearestParkingID string) {
 	return nearest
 }
 
+var indexHTML embed.FS
+
 func main() {
 	router := gin.Default()
 
@@ -275,6 +278,13 @@ func main() {
 		})
 	})
 
-	router.StaticFile("/", "./index.html") // serve frontend
+	router.GET("/", func(c *gin.Context) {
+		data, err := indexHTML.ReadFile("static/index.html")
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Failed to load index.html")
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+	})
 	router.Run(":8080")
 }
