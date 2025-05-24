@@ -57,27 +57,27 @@ type Graph map[string][]Edge
 
 var graph = Graph{
 	// Trục chính
-	"Intersection D4-D6":     {{"Nha xe D4-6", 1}, {"Intersection D9-C5", 1}},
-	"Intersection TDN":       {{"Nha xe C7", 1}, {"Nha xe B1", 1}},
-	"Intersection D9-C5":     {{"Intersection D4-D6", 1}, {"Nha xe D9", 1}, {"Nha xe C5", 1}, {"Nha xe C7", 1}, {"Nha xe D3-5", 1}},
-	"Intersection B6":        {{"Nha xe B1", 1}, {"Nha xe B6", 1}, {"Intersection B13TC", 1}},
-	"Intersection B13TC":     {{"Intersection B6", 1}, {"Intersection TQB1", 1}, {"Nha xe B13", 1}},
-	"Intersection TQB-TC":    {{"Intersection TQB2", 1}, {"Nha xe TC", 1}},
-	"Intersection TQB1":      {{"Intersection B13TC", 1}, {"Intersection TQB2", 1}},
-	"Intersection TQB2":      {{"Intersection TQB1", 1}, {"Intersection TQB-TC", 1}},
+	"Intersection D4-D6":     {{"Nha xe D4-6", 2}, {"Intersection D9-C5", 10}},
+	"Intersection TDN":       {{"Nha xe C7", 3}, {"Nha xe B1", 2}},
+	"Intersection D9-C5":     {{"Intersection D4-D6", 10}, {"Nha xe D9", 4}, {"Nha xe C5", 4}, {"Nha xe C7", 1}, {"Nha xe D3-5", 4}},
+	"Intersection B6":        {{"Nha xe B1", 1}, {"Nha xe B6", 5}, {"Intersection B13TC", 1}},
+	"Intersection B13TC":     {{"Intersection B6", 1}, {"Intersection TQB1", 1}, {"Nha xe B13", 6}},
+	"Intersection TQB-TC":    {{"Intersection TQB2", 3}, {"Nha xe TC", 4}},
+	"Intersection TQB1":      {{"Intersection B13TC", 6}, {"Intersection TQB2", 2}},
+	"Intersection TQB2":      {{"Intersection TQB1", 2}, {"Intersection TQB-TC", 2}},
 	"Intersection quaydauTC": {{"Intersection TQB-TC", 1}},
 
 	// Các nhà xe
 	"Nha xe C7":   {{"Intersection D9-C5", 1}},
-	"Nha xe C5":   {{"Intersection D9-C5", 1}},
+	"Nha xe C5":   {{"Intersection D9-C5", 3}},
 	"Nha xe D3-5": {{"Intersection TDN", 1}},
 
-	"Nha xe D9":   {{"Intersection D9-C5", 1}},
+	"Nha xe D9":   {{"Intersection D9-C5", 3}},
 	"Nha xe D4-6": {{"Intersection D4-D6", 1}},
 	"Nha xe B1":   {{"Intersection TDN", 1}, {"Intersection B6", 1}},
-	"Nha xe B6":   {{"Intersection B6", 1}},
-	"Nha xe TC":   {{"Intersection quaydauTC", 1}},
-	"Nha xe B13":  {{"Intersection B13TC", 1}},
+	"Nha xe B6":   {{"Intersection B6", 5}},
+	"Nha xe TC":   {{"Intersection quaydauTC", 2}},
+	"Nha xe B13":  {{"Intersection B13TC", 6}},
 }
 
 // Dijkstra
@@ -209,55 +209,23 @@ func FindNearestPoint(current Location) (nearestParkingID string, distance float
 
 	return nearest, minDist
 }
-func FindNearestAvailableParking(current Location) (nearestParkingID string, distance float64) {
-	minDist := math.MaxFloat64
-	nearest := ""
 
+// Tìm nhà xe gần nhất (còn chỗ) có tổng số đường đi bé nhất với point truyền vào (theo graph)
+func FindNearestAvailableParking(fromID string) (nearestParkingID string) {
+	minDist := math.MaxInt
+	nearest := ""
 	for id, p := range points {
-		// Bỏ qua các điểm không phải nhà xe (capacity = 0)
-		if p.Capacity == 0 {
+		if p.Capacity == 0 || p.Occupied >= p.Capacity {
 			continue
 		}
-		// Chỉ xét những nhà xe còn chỗ trống
-		if p.Occupied < p.Capacity {
-			dist := Haversine(current.Lat, current.Lng, p.Lat, p.Lng)
-			if dist < minDist {
-				minDist = dist
-				nearest = id
-			}
+		// Tìm đường đi ngắn nhất từ fromID đến id
+		_, dist := Dijkstra(graph, fromID, id)
+		if dist < minDist {
+			minDist = dist
+			nearest = id
 		}
 	}
-
-	return nearest, minDist
-}
-
-func suggestParkingHandler(w http.ResponseWriter, r *http.Request) {
-	var loc Location
-	if err := json.NewDecoder(r.Body).Decode(&loc); err != nil {
-		http.Error(w, "Invalid location", http.StatusBadRequest)
-		return
-	}
-
-	start := FindClosestNodeFromLocation(loc)
-	dest, _ := FindNearestAvailableParking(loc)
-
-	if start == "" || dest == "" {
-		http.Error(w, "Cannot determine route", http.StatusInternalServerError)
-		return
-	}
-
-	path, dist := Dijkstra(graph, start, dest)
-	resp := struct {
-		ParkingID string   `json:"parking_id"`
-		Path      []string `json:"path"`
-		Distance  int      `json:"steps"`
-	}{
-		ParkingID: dest,
-		Path:      path,
-		Distance:  dist,
-	}
-
-	json.NewEncoder(w).Encode(resp)
+	return nearest
 }
 
 func main() {
@@ -288,7 +256,7 @@ func main() {
 			return
 		}
 
-		nearestParkingID, _ := FindNearestAvailableParking(loc)
+		nearestParkingID := FindNearestAvailableParking(nearestPointID)
 		if nearestParkingID == "" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "no available parking"})
 			return
