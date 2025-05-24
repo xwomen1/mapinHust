@@ -64,8 +64,7 @@ Chỉnh sửa
  Triển khai tĩnh
 Đảm bảo file index.html nằm cùng thư mục với file .exe, vì ứng dụng sử dụng router.StaticFile("/", "./index.html") để phục vụ giao diện người dùng.
 
-Hình ảnh minh hoạ
-(Thêm ảnh chụp màn hình tại đây nếu có)
+
 
  Tham khảo
 LeafletJS
